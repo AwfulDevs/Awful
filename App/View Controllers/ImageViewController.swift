@@ -68,20 +68,25 @@ final class ImageViewController: UIViewController {
     
     @IBAction @objc fileprivate func didTapAction(_ sender: UIButton) {
         rootView.cancelHideOverlayAfterDelay()
-
-        let wrappedURL = CopyURLActivity.Box(imageURL)
         let activityViewController: UIActivityViewController
-
         // We need to provide the image data as the activity item so that animated GIFs stay animated.
         if (image == nil) {
+            let wrappedURL = CopyURLActivity.Box(imageURL) // <- not sure if this is still useful. keeping anyway
+            
             // Allow user to share the URL before the image has loaded fully, useful on slow connections
             activityViewController = UIActivityViewController(activityItems: [imageURL, wrappedURL], applicationActivities: [CopyURLActivity()])
             
             // Only use our copy button so it's clear they're copying the URL, not the image
             activityViewController.excludedActivityTypes = [UIActivity.ActivityType.copyToPasteboard]
         } else {
-            activityViewController = UIActivityViewController(activityItems: [image!.data!, wrappedURL], applicationActivities: [CopyURLActivity()])
+            var maybeData: Data?
+            maybeData = image!.data!
+            guard let data = maybeData, !data.isEmpty else { return }
             
+            let copyImageActivity = CopyImageActivity()
+            let items: [Any] = [imageURL, data]
+   
+            activityViewController = UIActivityViewController(activityItems: items, applicationActivities: [copyImageActivity])
         }
 
         present(activityViewController, animated: true)
@@ -524,53 +529,9 @@ private func downloadImage(_ url: URL, completion: @escaping (DecodedImage) -> V
         } else {
             fatalError("No data and no error in data task callback")
         }
-    }) 
+    })
     task.resume()
     
     progress.cancellationHandler = { task.cancel() }
     return progress
-}
-
-/// Adds a "Preview Image" activity which uses an ImageViewController. Place the image URL in a `Box` bfore adding it to `activityItems` so the activity (and nothing else) picks it up.
-final class ImagePreviewActivity: UIActivity {
-
-    private var _activityViewController: UIViewController?
-
-    /// Wraps a URL so that only the `ImagePreviewActivity` will try to use it.
-    final class Box {
-        fileprivate let url: URL
-
-        init(_ url: URL) {
-            self.url = url
-        }
-    }
-
-    // MARK: UIActivity
-
-    override var activityViewController : UIViewController? {
-        return _activityViewController
-    }
-
-    override var activityType: UIActivity.ActivityType {
-        return UIActivity.ActivityType(rawValue: "com.awfulapp.Awful.ImagePreview")
-    }
-    
-    override var activityTitle: String? {
-        return "Preview Image"
-    }
-    
-    override var activityImage: UIImage? {
-        return UIImage(named: "quick-look")
-    }
-    
-    override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
-        return activityItems.contains { $0 is Box }
-    }
-    
-    override func prepare(withActivityItems activityItems: [Any]) {
-        guard let url = activityItems.lazy.compactMap({ $0 as? Box }).first?.url else { return }
-        let imageViewController = ImageViewController(imageURL: url)
-        imageViewController.doneAction = { self.activityDidFinish(true) }
-        _activityViewController = imageViewController
-    }
 }
