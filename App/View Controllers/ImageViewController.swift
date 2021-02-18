@@ -68,7 +68,7 @@ final class ImageViewController: UIViewController {
     
     @IBAction @objc fileprivate func didTapAction(_ sender: UIButton) {
         rootView.cancelHideOverlayAfterDelay()
-        var activityViewController: UIActivityViewController
+        let activityViewController: UIActivityViewController
         let wrappedURL = CopyURLActivity.Box(imageURL)
         var maybeData: Data?
         maybeData = image!.data!
