@@ -68,27 +68,18 @@ final class ImageViewController: UIViewController {
     
     @IBAction @objc fileprivate func didTapAction(_ sender: UIButton) {
         rootView.cancelHideOverlayAfterDelay()
-        let activityViewController: UIActivityViewController
-        // We need to provide the image data as the activity item so that animated GIFs stay animated.
-        if (image == nil) {
-            let wrappedURL = CopyURLActivity.Box(imageURL) // <- not sure if this is still useful. keeping anyway
+        var activityViewController: UIActivityViewController
+        let wrappedURL = CopyURLActivity.Box(imageURL)
+        var maybeData: Data?
+        maybeData = image!.data!
+        guard let data = maybeData, !data.isEmpty else { return }
+        let items: [Any] = [imageURL, wrappedURL, data]
             
-            // Allow user to share the URL before the image has loaded fully, useful on slow connections
-            activityViewController = UIActivityViewController(activityItems: [imageURL, wrappedURL], applicationActivities: [CopyURLActivity()])
-            
-            // Only use our copy button so it's clear they're copying the URL, not the image
-            activityViewController.excludedActivityTypes = [UIActivity.ActivityType.copyToPasteboard]
-        } else {
-            var maybeData: Data?
-            maybeData = image!.data!
-            guard let data = maybeData, !data.isEmpty else { return }
-            
-            let copyImageActivity = CopyImageActivity()
-            let items: [Any] = [imageURL, data]
+        activityViewController = UIActivityViewController(activityItems: items, applicationActivities: [CopyImageActivity(), CopyURLActivity(title: "Copy URL")])
    
-            activityViewController = UIActivityViewController(activityItems: items, applicationActivities: [copyImageActivity])
-        }
-
+        // Only use our copy buttons
+        activityViewController.excludedActivityTypes = [UIActivity.ActivityType.copyToPasteboard]
+        
         present(activityViewController, animated: true)
         if let popover = activityViewController.popoverPresentationController {
             popover.sourceView = sender
