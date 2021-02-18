@@ -3,6 +3,7 @@
 //  Copyright 2014 Awful Contributors. CC BY-NC-SA 3.0 US https://github.com/Awful/Awful.app
 
 import FLAnimatedImage
+import Nuke
 
 private let Log = Logger.get()
 
@@ -18,7 +19,7 @@ final class ImageViewController: UIViewController {
         self.imageURL = imageURL
         super.init(nibName: nil, bundle: nil)
         
-        downloadProgress = downloadImage(imageURL, completion: didDownloadImage)
+        downloadImage(imageURL, completion: didDownloadImage)
     }
     
     required init?(coder aDecoder: NSCoder) {
@@ -43,7 +44,6 @@ final class ImageViewController: UIViewController {
     }
     
     fileprivate func dismiss() {
-        downloadProgress.cancel()
         rootView.cancelHideOverlayAfterDelay()
         
         if let action = doneAction {
@@ -451,78 +451,26 @@ private enum DecodedImage {
 }
 
 /// Downloads and decodes the image at the URL. Completion is called on the main thread.
-private func downloadImage(_ url: URL, completion: @escaping (DecodedImage) -> Void) -> Progress {
+private func downloadImage(_ url: URL, completion: @escaping (DecodedImage) -> Void) {
+    ImagePipeline.Configuration.isAnimatedImageDataEnabled = true
     let done: (DecodedImage) -> Void = { image in
-        DispatchQueue.main.async {
-            completion(image)
-        }
+        completion(image)
     }
-    
-    let progress = Progress(totalUnitCount: 2)
-    
-    var request = URLRequest(url: url)
-    request.addValue("image/*", forHTTPHeaderField: "Accept")
-    
-    let task = URLSession.shared.dataTask(with: request, completionHandler: { (data: Data?, response: URLResponse?, error: Error?) in
-        progress.completedUnitCount += 1
         
-        if let error = error {
-            return done(.error(error))
-        }
-        
-        if let response = response as? HTTPURLResponse {
-            if !(200...299).contains(response.statusCode) {
-                let error = NSError(domain: AwfulErrorDomain, code: AwfulErrorCodes.badServerResponse, userInfo: [
-                    NSLocalizedDescriptionKey: "Request failed (\(response.statusCode))",
-                    NSURLErrorFailingURLErrorKey: url
-                    ])
-                return done(.error(error))
+    ImagePipeline.shared.loadImage(with: url, progress: nil){
+           result in switch result {
+          
+           case .success(let value):
+            let data = value.container.data
+            let image = value.image
+            if let animatedImage = FLAnimatedImage(animatedGIFData: data) {
+                return done(.animated(animatedImage))
+            } else {
+                return done(.static(image: image, data: image.pngData()!))
             }
-        }
-        
-        if let data = data {
-            DispatchQueue.global(qos: DispatchQoS.QoSClass.default).async {
-                if let animatedImage = FLAnimatedImage(animatedGIFData: data) {
-                    progress.completedUnitCount += 1
-                    
-                    return done(.animated(animatedImage))
-                }
-                
-                if let image = UIImage(data: data) {
-                    // Force decoding in the background.
-                    
-                    UIGraphicsBeginImageContextWithOptions(image.size, false, 1)
-                    
-                    image.draw(in: CGRect(origin: CGPoint.zero, size: image.size))
-                    
-                    if progress.isCancelled {
-                        UIGraphicsEndImageContext()
-                        
-                        let error = NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError, userInfo: nil)
-                        return done(.error(error))
-                    }
-                    
-                    let decodedImage = UIGraphicsGetImageFromCurrentImageContext()!
-                    
-                    UIGraphicsEndImageContext()
-                    
-                    progress.completedUnitCount += 1
-                    
-                    return done(.static(image: decodedImage, data: data))
-                }
-                
-                let error = NSError(domain: AwfulErrorDomain, code: AwfulErrorCodes.badServerResponse, userInfo: [
-                    NSLocalizedDescriptionKey: "Request failed (no image data)",
-                    NSURLErrorFailingURLErrorKey: url
-                    ])
-                return done(.error(error))
-            }
-        } else {
-            fatalError("No data and no error in data task callback")
-        }
-    })
-    task.resume()
     
-    progress.cancellationHandler = { task.cancel() }
-    return progress
+           case .failure(_):
+            break // yolo
+           }
+    }
 }

@@ -1,25 +1,35 @@
-//  FLAnimatedImageView+Nuke.swift
+// FLAnimatedImageView+Nuke.swift
+// The MIT License (MIT)
 //
-//  Copyright 2019 Awful Contributors. CC BY-NC-SA 3.0 US https://github.com/Awful/Awful.app
-
+// Copyright (c) 2016-2020 Alexander Grebenyuk (github.com/kean).
+import UIKit
 import FLAnimatedImage
 import Nuke
 
 extension FLAnimatedImageView {
-    open override func nuke_display(image: PlatformImage?) {
-        self.image = image
-
-        guard let image = image, let data = image.animatedImageData else {
-            animatedImage = nil
+    @objc open override func nuke_display(image: PlatformImage?) {
+        guard image != nil else {
+            self.animatedImage = nil
+            self.image = nil
             return
         }
+        if let data = image?.animatedImageData {
+            // Display poster image immediately
+            self.image = image
 
-        DispatchQueue.global()
-            .async(.promise) { FLAnimatedImage(animatedGIFData: data) }
-            .done {
-                if self.image === image {
-                    self.animatedImage = $0
+            // Prepare FLAnimatedImage object asynchronously (it takes a
+            // noticeable amount of time), and start playback.
+            DispatchQueue.global().async {
+                let animatedImage = FLAnimatedImage(animatedGIFData: data)
+                DispatchQueue.main.async {
+                    // If view is still displaying the same image
+                    if self.image === image {
+                        self.animatedImage = animatedImage
+                    }
                 }
+            }
+        } else {
+            self.image = image
         }
     }
 }
