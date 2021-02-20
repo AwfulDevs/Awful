@@ -3,6 +3,7 @@
 //  Copyright 2017 Awful Contributors. CC BY-NC-SA 3.0 US https://github.com/Awful/Awful.app
 
 import HTMLReader
+import Nuke
 
 extension HTMLDocument {
     
@@ -119,6 +120,10 @@ extension HTMLDocument {
                 let src = img["src"],
                 let url = URL(string: src)
                 else { continue }
+            // we're already cycling through img tags here, so caching them with nuke.
+            // quite fast with WKWebView caching disabled.
+            // attempted this activity in many places and this one seems to be best
+            self.nukeImage(url: url)
             
             let isSmilie = isSmilieURL(url)
             
@@ -137,6 +142,10 @@ extension HTMLDocument {
                 img.parent?.replace(child: img, with: link)
             }
         }
+    }
+    
+    func nukeImage(url: URL){
+        ImagePipeline.shared.loadImage(with: url, progress: nil, completion: nil)
     }
     
     /**

@@ -26,7 +26,8 @@ final class RenderView: UIView {
 
     private lazy var webView: WKWebView = {
         let configuration = WKWebViewConfiguration()
-        
+        // turning off webview cache seems to improve things. nuke now does caching instead.
+        configuration.websiteDataStore = WKWebsiteDataStore.nonPersistent()
         let bundle = Bundle(for: RenderView.self)
         configuration.userContentController.addUserScript({
             let url = bundle.url(forResource: "RenderView.js", withExtension: nil)!

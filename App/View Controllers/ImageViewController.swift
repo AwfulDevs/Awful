@@ -45,7 +45,6 @@ final class ImageViewController: UIViewController {
     
     fileprivate func dismiss() {
         rootView.cancelHideOverlayAfterDelay()
-        
         if let action = doneAction {
             action()
         } else {
@@ -452,25 +451,35 @@ private enum DecodedImage {
 
 /// Downloads and decodes the image at the URL. Completion is called on the main thread.
 private func downloadImage(_ url: URL, completion: @escaping (DecodedImage) -> Void) {
-    ImagePipeline.Configuration.isAnimatedImageDataEnabled = true
     let done: (DecodedImage) -> Void = { image in
         completion(image)
     }
         
     ImagePipeline.shared.loadImage(with: url, progress: nil){
            result in switch result {
-          
            case .success(let value):
             let data = value.container.data
             let image = value.image
             if let animatedImage = FLAnimatedImage(animatedGIFData: data) {
                 return done(.animated(animatedImage))
             } else {
-                return done(.static(image: image, data: image.pngData()!))
+                if let image = UIImage(data: image.pngData()!) {
+                    UIGraphicsBeginImageContextWithOptions(image.size, false, 1)
+                    image.draw(in: CGRect(origin: CGPoint.zero, size: image.size))
+                    let decodedImage = UIGraphicsGetImageFromCurrentImageContext()!
+                    UIGraphicsEndImageContext()
+                    return done(.static(image: decodedImage, data: image.pngData()!))
+                } else {
+                    UIGraphicsEndImageContext()
+                    let error = NSError(domain: AwfulErrorDomain, code: AwfulErrorCodes.badServerResponse, userInfo: [
+                        NSLocalizedDescriptionKey: "Request failed (no image data)",
+                        NSURLErrorFailingURLErrorKey: url])
+                    return done(.error(error))
+                }
             }
-    
            case .failure(_):
-            break // yolo
-           }
+            let error = NSError(domain: NSCocoaErrorDomain, code: NSUserCancelledError, userInfo: nil)
+            return done(.error(error))
+        }
     }
 }
