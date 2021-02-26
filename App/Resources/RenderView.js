@@ -15,124 +15,35 @@ if (!window.Awful) {
  Turns apparent links to tweets into actual embedded tweets.
  */
 Awful.embedTweets = function() {
-  Awful.loadTwitterWidgets();
-
-  var tweetLinks = document.querySelectorAll('a[data-tweet-id]');
-  if (tweetLinks.length == 0) {
-    return;
-  }
-
-  var tweetIDsToLinks = {};
-  Array.prototype.forEach.call(tweetLinks, function(a) {
-    if (a.parentElement.querySelector('img.awful-smile[title=":nws:"]')) {
-      return;
-    }
-    if (a.parentElement.className == 'bbc-spoiler'){
-      return;
-    }
-      
-    var tweetID = a.dataset.tweetId;
-    if (!(tweetID in tweetIDsToLinks)) {
-      tweetIDsToLinks[tweetID] = [];
-    }
-    tweetIDsToLinks[tweetID].push(a);
-  });
-
-  var totalFetchCount = Object.keys(tweetIDsToLinks).length;
-  var completedFetchCount = 0;
-
-  Object.keys(tweetIDsToLinks).forEach(function(tweetID) {
-    var callback = `jsonp_callback_${tweetID}`;
-    var tweetTheme = Awful.tweetTheme();
-
-    var script = document.createElement('script');
-    script.src = `https://api.twitter.com/1/statuses/oembed.json?id=${tweetID}&omit_script=true&dnt=true&theme=${tweetTheme}&callback=${callback}`;
-
-    window[callback] = function(data) {
-      cleanUp(script);
-
-      tweetIDsToLinks[tweetID].forEach(function(a) {
-        if (a.parentNode) {
-          var div = document.createElement('div');
-          div.classList.add('tweet');
-          div.innerHTML = data.html;
-          a.parentNode.replaceChild(div, a);
+    Awful.loadTwitterWidgets();
+    var tweetLinks = document.querySelectorAll('a[data-tweet-id]');
+    if (tweetLinks.length == 0) { return; }
+    
+    tweetLinks.forEach(function(tweet) {
+        if (tweet.parentNode.className == 'bbc-spoiler' || tweet.parentElement.querySelector('img.awful-smile[title=":nws:"]')) {
+             return;
+        } else {
+            var tweetID = tweet.getAttribute('data-tweet-id');
+            tweet.replaceWith(Awful.downloadTweetByID(tweetID));
         }
       });
-
-      didCompleteFetch();
-    };
-
-    script.onerror = function() {
-      cleanUp(this);
-      console.error(`The embed markup for tweet ${tweetID} failed to load`);
-      didCompleteFetch();
-    };
-
-    function cleanUp(script) {
-      delete window[callback];
-      if (script.parentNode) {
-        script.parentNode.removeChild(script);
-      }
-    }
-
-    document.body.appendChild(script);
-  });
-
-  function didCompleteFetch() {
-    completedFetchCount += 1;
-
-    if (completedFetchCount == totalFetchCount) {
-      if (window.twttr) {
-        twttr.ready(function() {
-          twttr.widgets.load();
-        });
-
-        if (webkit.messageHandlers.didFinishLoadingTweets) {
-          twttr.events.bind('loaded', function() {
-            webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
-          });
-        }
-      }
-    }
-  }
 };
 
-Awful.tweetTheme = function() {
-  return document.body.dataset.tweetTheme;
-}
 
-Awful.setTweetTheme = function(newTheme) {
-  document.body.dataset.tweetTheme = newTheme;
-}
-
-Awful.loadSpoiledTweet = function(event) {
-    var link = event.target;
-    var tweetID = link.getAttribute('data-tweet-id');
-    
-   // see if tweet has already been displayed ("spoiled")
-    var spoiledTweetDivExists = document.querySelector(`iframe[data-tweet-id="${tweetID}"]`);
-    if (spoiledTweetDivExists){
-        var spoiledTweetDiv = spoiledTweetDivExists.parentNode.parentNode;
-        spoiledTweetDiv.parentNode.removeChild(spoiledTweetDiv);
-        event.preventDefault();
-        return;
-    }
-    // otherwise, continue loading single tweet
+Awful.downloadTweetByID = function(tweetID) {
     var callback = `jsonp_callback_${tweetID}`;
     var tweetTheme = Awful.tweetTheme();
-
+    var tweetLinkElements = document.querySelectorAll(`a[data-tweet-id="${tweetID}"]`);
+    var returnDiv = document.createElement('div');
+    returnDiv.classList.add('tweet');
+  
     var script = document.createElement('script');
     script.src = `https://api.twitter.com/1/statuses/oembed.json?id=${tweetID}&omit_script=true&dnt=true&theme=${tweetTheme}&callback=${callback}`;
 
     window[callback] = function(data) {
         cleanUp(script);
-        var div = document.createElement('div');
-        div.classList.add('tweet');
-        div.innerHTML = data.html;
-        var unspoiledTweetElement = document.querySelector(`a[data-tweet-id="${tweetID}"]`);
-        unspoiledTweetElement.appendChild(div);
-
+        returnDiv.innerHTML = data.html;
+      
         didCompleteFetch();
       };
 
@@ -152,19 +63,49 @@ Awful.loadSpoiledTweet = function(event) {
       document.body.appendChild(script);
 
     function didCompleteFetch() {
-        if (window.twttr) {
-          twttr.ready(function() {
-            twttr.widgets.load();
-          });
+            if (window.twttr) {
+                twttr.ready(function() {
+                    twttr.widgets.load();
+                });
 
-          if (webkit.messageHandlers.didFinishLoadingTweets) {
-            twttr.events.bind('loaded', function() {
-              webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
-            });
-          }
+                if (webkit.messageHandlers.didFinishLoadingTweets) {
+                    twttr.events.bind('loaded', function() {
+                    webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
+                    });
+            }
         }
     }
+    
+    return returnDiv;
 };
+
+
+Awful.tweetTheme = function() {
+  return document.body.dataset.tweetTheme;
+}
+
+
+Awful.setTweetTheme = function(newTheme) {
+  document.body.dataset.tweetTheme = newTheme;
+}
+
+
+Awful.embedOrHideSpoiledTweet = function(event) {
+    var tweet = event.target;
+    var tweetID = tweet.getAttribute('data-tweet-id');
+    
+   // see if tweet has already been displayed ("spoiled")
+    var spoiledTweetDivExists = document.querySelector(`iframe[data-tweet-id="${tweetID}"]`);
+    if (spoiledTweetDivExists){
+        var spoiledTweetDiv = spoiledTweetDivExists.parentNode.parentNode;
+        spoiledTweetDiv.parentNode.removeChild(spoiledTweetDiv);
+        event.preventDefault();
+        return;
+    }
+    // otherwise, continue loading single tweet
+    tweet.appendChild(Awful.downloadTweetByID(tweetID));
+};
+
 
 /**
  Loads Twitter's widgets.js into the document. In the meantime, makes `window.twttr.ready()` available so you can prepare a callback for when widgets.js finishes loading:
@@ -230,7 +171,7 @@ Awful.handleClickEvent = function(event) {
 
     if (spoiledTweetLink) {
         spoiler.classList.toggle("spoiled");
-        Awful.loadSpoiledTweet(event);
+        Awful.embedOrHideSpoiledTweet(event);
         event.preventDefault();
         return;
     }
