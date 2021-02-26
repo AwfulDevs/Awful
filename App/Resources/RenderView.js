@@ -27,6 +27,10 @@ Awful.embedTweets = function() {
     if (a.parentElement.querySelector('img.awful-smile[title=":nws:"]')) {
       return;
     }
+    if (a.parentElement.className == 'bbc-spoiler'){
+      return;
+    }
+      
     var tweetID = a.dataset.tweetId;
     if (!(tweetID in tweetIDsToLinks)) {
       tweetIDsToLinks[tweetID] = [];
@@ -102,6 +106,65 @@ Awful.setTweetTheme = function(newTheme) {
   document.body.dataset.tweetTheme = newTheme;
 }
 
+Awful.loadSpoiledTweet = function(event) {
+    var link = event.target;
+    var tweetID = link.getAttribute('data-tweet-id');
+    
+   // see if tweet has already been displayed ("spoiled")
+    var spoiledTweetDivExists = document.querySelector(`iframe[data-tweet-id="${tweetID}"]`);
+    if (spoiledTweetDivExists){
+        var spoiledTweetDiv = spoiledTweetDivExists.parentNode.parentNode;
+        spoiledTweetDiv.parentNode.removeChild(spoiledTweetDiv);
+        event.preventDefault();
+        return;
+    }
+    // otherwise, continue loading single tweet
+    var callback = `jsonp_callback_${tweetID}`;
+    var tweetTheme = Awful.tweetTheme();
+
+    var script = document.createElement('script');
+    script.src = `https://api.twitter.com/1/statuses/oembed.json?id=${tweetID}&omit_script=true&dnt=true&theme=${tweetTheme}&callback=${callback}`;
+
+    window[callback] = function(data) {
+        cleanUp(script);
+        var div = document.createElement('div');
+        div.classList.add('tweet');
+        div.innerHTML = data.html;
+        var unspoiledTweetElement = document.querySelector(`a[data-tweet-id="${tweetID}"]`);
+        unspoiledTweetElement.appendChild(div);
+
+        didCompleteFetch();
+      };
+
+      script.onerror = function() {
+        cleanUp(this);
+        console.error(`The embed markup for tweet ${tweetID} failed to load`);
+        didCompleteFetch();
+      };
+
+      function cleanUp(script) {
+        delete window[callback];
+        if (script.parentNode) {
+          script.parentNode.removeChild(script);
+        }
+      }
+
+      document.body.appendChild(script);
+
+    function didCompleteFetch() {
+        if (window.twttr) {
+          twttr.ready(function() {
+            twttr.widgets.load();
+          });
+
+          if (webkit.messageHandlers.didFinishLoadingTweets) {
+            twttr.events.bind('loaded', function() {
+              webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
+            });
+          }
+        }
+    }
+};
 
 /**
  Loads Twitter's widgets.js into the document. In the meantime, makes `window.twttr.ready()` available so you can prepare a callback for when widgets.js finishes loading:
@@ -150,10 +213,10 @@ Awful.jumpToFractionalOffset = function(fraction) {
  @param {Event} event - A click event.
  */
 Awful.handleClickEvent = function(event) {
-
   // We'll be using this in a couple places.
   var gifWrapper = event.target.closest('.gif-wrap');
-
+  var spoiledTweetLink = event.target.closest('a[data-tweet-id]');
+    
   // Toggle spoilers on tap.
   var spoiler = event.target.closest('.bbc-spoiler');
   if (spoiler) {
@@ -163,6 +226,13 @@ Awful.handleClickEvent = function(event) {
       Awful.toggleGIF(gifWrapper);
       event.preventDefault();
       return;
+    }
+
+    if (spoiledTweetLink) {
+        spoiler.classList.toggle("spoiled");
+        Awful.loadSpoiledTweet(event);
+        event.preventDefault();
+        return;
     }
 
     var nearestLink = event.target.closest('a, [data-awful-linkified-image]');
