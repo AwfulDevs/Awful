@@ -24,7 +24,8 @@ Awful.embedTweets = function() {
              return;
         } else {
             var tweetID = tweet.getAttribute('data-tweet-id')
-            let promise = Awful.downloadTweetByID(tweetID).then(result => tweet.replaceWith(result), error => console.log(`Error: ${error.message}`));
+            var tweetDiv = Promise.resolve(Awful.downloadTweetByID(tweetID));
+            tweetDiv.then(result => tweet.replaceWith(result), error => console.log(`Error: ${error.message}`));
         }
     });
 };
