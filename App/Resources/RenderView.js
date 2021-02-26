@@ -23,33 +23,48 @@ Awful.embedTweets = function() {
         if (tweet.parentNode.className == 'bbc-spoiler' || tweet.parentElement.querySelector('img.awful-smile[title=":nws:"]')) {
              return;
         } else {
-            var tweetID = tweet.getAttribute('data-tweet-id');
-            tweet.replaceWith(Awful.downloadTweetByID(tweetID));
+            var tweetID = tweet.getAttribute('data-tweet-id')
+            let promise = Awful.downloadTweetByID(tweetID).then(result => tweet.replaceWith(result), error => console.log(`Error: ${error.message}`));
         }
-      });
+    });
 };
 
 
+/**
+ Requests single Tweets from Twitter and returns a tweet div.
+ It's up to the calling function to replace/append the returned div as appropriate.
+ Using promises because Tweets that have been removed from Twitter were being removed from the DOM, despite attempts to return without replacing any elements.
+ Promises have been supported since IOS8 according to https://caniuse.com/promises, so hopefully there are no issues with this.
+ 
+ A future idea may be to create a stencil for tweets and return the oembed.json to Swift, populating the stencil. Would need to escape and parse the html property.
+ Would lessen the DOM manipulation and also could display full images, rather than the current embed cutoff the provided widget creates.
+ Perhaps it would also help with the video playback issues when changing device orientation?
+ Would also be able to fix the Share function, removing the tracking stuff from the URL.
+ 
+ Tradeoff would be maintenance required if Twitter changed their v1 api.
+ */
 Awful.downloadTweetByID = function(tweetID) {
     var callback = `jsonp_callback_${tweetID}`;
     var tweetTheme = Awful.tweetTheme();
-    var tweetLinkElements = document.querySelectorAll(`a[data-tweet-id="${tweetID}"]`);
     var returnDiv = document.createElement('div');
     returnDiv.classList.add('tweet');
-  
+    
+    return new Promise(async function(resolve, reject) {
     var script = document.createElement('script');
     script.src = `https://api.twitter.com/1/statuses/oembed.json?id=${tweetID}&omit_script=true&dnt=true&theme=${tweetTheme}&callback=${callback}`;
-
+    
     window[callback] = function(data) {
         cleanUp(script);
-        returnDiv.innerHTML = data.html;
-      
+        let html = data.html;
+        returnDiv.innerHTML = html;
+        resolve(returnDiv);
         didCompleteFetch();
       };
 
       script.onerror = function() {
         cleanUp(this);
         console.error(`The embed markup for tweet ${tweetID} failed to load`);
+        reject(new Error(`Tweet load error for ${tweetID}`));
         didCompleteFetch();
       };
 
@@ -60,23 +75,21 @@ Awful.downloadTweetByID = function(tweetID) {
         }
       }
 
-      document.body.appendChild(script);
+    document.body.appendChild(script);
 
     function didCompleteFetch() {
             if (window.twttr) {
                 twttr.ready(function() {
                     twttr.widgets.load();
                 });
-
                 if (webkit.messageHandlers.didFinishLoadingTweets) {
                     twttr.events.bind('loaded', function() {
-                    webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
+                        webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
                     });
+                }
             }
         }
-    }
-    
-    return returnDiv;
+    });
 };
 
 
@@ -92,7 +105,9 @@ Awful.setTweetTheme = function(newTheme) {
 
 Awful.embedOrHideSpoiledTweet = function(event) {
     var tweet = event.target;
+    tweet.parentNode.classList.toggle("spoiled");
     var tweetID = tweet.getAttribute('data-tweet-id');
+    event.preventDefault();
     
    // see if tweet has already been displayed ("spoiled")
     var spoiledTweetDivExists = document.querySelector(`iframe[data-tweet-id="${tweetID}"]`);
@@ -102,8 +117,10 @@ Awful.embedOrHideSpoiledTweet = function(event) {
         event.preventDefault();
         return;
     }
-    // otherwise, continue loading single tweet
-    tweet.appendChild(Awful.downloadTweetByID(tweetID));
+    // otherwise, continue loading single spoiler-tagged tweet
+    var tweetDiv = Promise.resolve(Awful.downloadTweetByID(tweetID));
+    tweetDiv.then(result => tweet.parentNode.appendChild(result), error => console.log(`Error: ${error.message}`));
+    return;
 };
 
 
@@ -156,7 +173,7 @@ Awful.jumpToFractionalOffset = function(fraction) {
 Awful.handleClickEvent = function(event) {
   // We'll be using this in a couple places.
   var gifWrapper = event.target.closest('.gif-wrap');
-  var spoiledTweetLink = event.target.closest('a[data-tweet-id]');
+  var tweetLink = event.target.closest('a[data-tweet-id]');
     
   // Toggle spoilers on tap.
   var spoiler = event.target.closest('.bbc-spoiler');
@@ -169,8 +186,7 @@ Awful.handleClickEvent = function(event) {
       return;
     }
 
-    if (spoiledTweetLink) {
-        spoiler.classList.toggle("spoiled");
+    if (tweetLink) {
         Awful.embedOrHideSpoiledTweet(event);
         event.preventDefault();
         return;
