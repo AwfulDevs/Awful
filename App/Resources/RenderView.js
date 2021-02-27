@@ -17,17 +17,22 @@ if (!window.Awful) {
 Awful.embedTweets = function() {
     Awful.loadTwitterWidgets();
     var tweetLinks = document.querySelectorAll('a[data-tweet-id]');
-    if (tweetLinks.length == 0) { return; }
+    var numberOfTweets = tweetLinks.length;
+    if (numberOfTweets == 0) { return; }
+  
     
-    tweetLinks.forEach(function(tweet) {
-        if (tweet.parentNode.className == 'bbc-spoiler' || tweet.parentElement.querySelector('img.awful-smile[title=":nws:"]')) {
-             return;
-        } else {
-            var tweetID = tweet.getAttribute('data-tweet-id')
-            var tweetDiv = Promise.resolve(Awful.downloadTweetByID(tweetID));
-            tweetDiv.then(result => tweet.replaceWith(result), error => console.log(`Error: ${error.message}`));
-        }
-    });
+    try {
+        tweetLinks.forEach((tweet) => {
+            if (tweet.parentNode.className == 'bbc-spoiler' || tweet.parentElement.querySelector('img.awful-smile[title=":nws:"]')) {
+                return;
+            }
+            var multipleTweets = true;
+            var loadTweets = Promise.resolve(Awful.downloadTweets(tweet, multipleTweets));
+           
+        });
+    } catch (e) {
+            console.log(e);
+    }
 };
 
 
@@ -44,29 +49,33 @@ Awful.embedTweets = function() {
  
  Tradeoff would be maintenance required if Twitter changed their v1 api.
  */
-Awful.downloadTweetByID = function(tweetID) {
-    var callback = `jsonp_callback_${tweetID}`;
-    var tweetTheme = Awful.tweetTheme();
-    var returnDiv = document.createElement('div');
-    returnDiv.classList.add('tweet');
+Awful.downloadTweets = function(tweet, multipleTweets) {
+    return new Promise(function(resolve, reject) {
+        var tweetID = tweet.getAttribute('data-tweet-id')
+        var callback = `jsonp_callback_${tweetID}`;
+        var tweetTheme = Awful.tweetTheme();
+      
+        var script = document.createElement('script');
+        script.src = `https://api.twitter.com/1/statuses/oembed.json?id=${tweetID}&omit_script=true&dnt=true&theme=${tweetTheme}&callback=${callback}`;
     
-    return new Promise(async function(resolve, reject) {
-    var script = document.createElement('script');
-    script.src = `https://api.twitter.com/1/statuses/oembed.json?id=${tweetID}&omit_script=true&dnt=true&theme=${tweetTheme}&callback=${callback}`;
-    
-    window[callback] = function(data) {
-        cleanUp(script);
-        let html = data.html;
-        returnDiv.innerHTML = html;
-        resolve(returnDiv);
-        didCompleteFetch();
-      };
+        window[callback] = function(data) {
+            let html = data.html;
+            var newTweetDiv = document.createElement('div');
+            newTweetDiv.classList.add('tweet');
+            newTweetDiv.innerHTML = html;
+            if (multipleTweets){
+                tweet.replaceWith(newTweetDiv)
+            } else {
+                tweet.parentNode.appendChild(newTweetDiv);
+            }
+            didCompleteFetch()
+            cleanUp(script);
+        };
 
       script.onerror = function() {
         cleanUp(this);
         console.error(`The embed markup for tweet ${tweetID} failed to load`);
         reject(new Error(`Tweet load error for ${tweetID}`));
-        didCompleteFetch();
       };
 
       function cleanUp(script) {
@@ -77,22 +86,22 @@ Awful.downloadTweetByID = function(tweetID) {
       }
 
     document.body.appendChild(script);
-
-    function didCompleteFetch() {
-            if (window.twttr) {
-                twttr.ready(function() {
-                    twttr.widgets.load();
-                });
-                if (webkit.messageHandlers.didFinishLoadingTweets) {
-                    twttr.events.bind('loaded', function() {
-                        webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
-                    });
-                }
-            }
-        }
     });
 };
 
+function didCompleteFetch() {
+    if (window.twttr) {
+        twttr.ready(function() {
+        twttr.widgets.load();
+   
+    if (webkit.messageHandlers.didFinishLoadingTweets) {
+        twttr.events.bind('loaded', function() {
+        webkit.messageHandlers.didFinishLoadingTweets.postMessage({});
+            });
+        }
+    });
+    }
+}
 
 Awful.tweetTheme = function() {
   return document.body.dataset.tweetTheme;
@@ -119,8 +128,9 @@ Awful.embedOrHideSpoiledTweet = function(event) {
         return;
     }
     // otherwise, continue loading single spoiler-tagged tweet
-    var tweetDiv = Promise.resolve(Awful.downloadTweetByID(tweetID));
-    tweetDiv.then(result => tweet.parentNode.appendChild(result), error => console.log(`Error: ${error.message}`));
+    var tweetDiv = Promise.resolve(Awful.downloadTweets(tweet, false));
+   // tweetDiv.then(result => tweet.parentNode.appendChild(result), error => console.log(`Error: ${error.message}`));
+   // didCompleteFetch()
     return;
 };
 
@@ -138,18 +148,11 @@ Awful.loadTwitterWidgets = function() {
   if (document.getElementById('twitter-wjs')) {
     return;
   }
+    var script = document.createElement('script');
+    script.innerHTML = `window.twttr = (function(d, s, id) {var js, fjs = d.getElementsByTagName(s)[0],t = window.twttr || {};if (d.getElementById(id)) return t;js = d.createElement(s);js.id = id;js.src = "https://platform.twitter.com/widgets.js";fjs.parentNode.insertBefore(js, fjs);t._e = [];t.ready = function(f) {t._e.push(f);};return t;}(document, "script", "twitter-wjs"));`;
+    
+  document.head.appendChild(script);
 
-  var script = document.createElement('script');
-  script.id = 'twitter-wjs';
-  script.src = "https://platform.twitter.com/widgets.js";
-  document.body.appendChild(script);
-
-  window.twttr = {
-    _e: [],
-    ready: function(f) {
-      twttr._e.push(f);
-    }
-  };
 };
 
 
